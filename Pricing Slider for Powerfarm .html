@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PowerFarm Pricing — Incremental Tiers</title>
+  <style>
+    :root{ --primary:#9A2A8E; --secondary:#5AC8C8; --bg:#f9f9f9; --text:#333; }
+    html, body { height:100%; }
+    body{
+      margin:0; padding:0; background:var(--bg); color:var(--text);
+      display:flex; align-items:center; justify-content:center; font-family:Arial, Helvetica, sans-serif;
+    }
+    .card{
+      background:#fff; padding:40px; border-radius:12px;
+      box-shadow:0 4px 20px rgba(0,0,0,.1); text-align:center; width:min(900px, 94vw);
+    }
+    h2{ color:var(--primary); margin:0 0 8px; font-size:32px; }
+    .sub{ font-size:12px; color:#666; margin:0 0 12px; }
+    label{ display:block; font-size:18px; margin:14px 0 6px; }
+    .count{ font-size:22px; margin:6px 0 14px; }
+    .price{ font-size:30px; font-weight:800; color:var(--secondary); margin-top:8px; }
+
+    /* breakdown */
+    .breakdown{
+      margin-top:16px; font-size:14px; color:#555; line-height:1.55;
+      border-top:1px solid #eee; padding-top:12px; text-align:left;
+      width:min(760px, 92%); margin-left:auto; margin-right:auto;
+    }
+    .row{ display:flex; justify-content:space-between; gap:12px; margin:4px 0; }
+    .row .l{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .row .r{ white-space:nowrap; font-weight:600; }
+    .total-row{ border-top:1px dashed #ddd; margin-top:8px; padding-top:8px; }
+
+    /* tier legend */
+    .legend{ margin-top:10px; font-size:12px; color:#666; }
+    .tiers{
+      display:grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); gap:10px;
+      margin:12px auto 0; max-width:860px;
+    }
+    .tier{
+      border:1px solid #eee; border-radius:10px; padding:10px;
+      font-size:12px; line-height:1.35; background:#fff;
+    }
+    .tier h4{ margin:0 0 4px; color:#222; font-size:13px; }
+    .tier .amt{ font-weight:700; color:#222; }
+
+    /* Slider */
+    input[type=range]{
+      -webkit-appearance:none; -moz-appearance:none; appearance:none;
+      width:720px; max-width:92vw; height:12px; background:#ddd; border-radius:6px; outline:none; margin-top:12px;
+    }
+    input[type=range]::-webkit-slider-runnable-track{ height:12px; background:var(--primary); border-radius:6px; }
+    input[type=range]::-webkit-slider-thumb{
+      -webkit-appearance:none; appearance:none; width:28px; height:28px; border-radius:50%;
+      background:var(--secondary); border:3px solid var(--primary); cursor:pointer; margin-top:-8px;
+    }
+    input[type=range]::-moz-range-track{ height:12px; background:var(--primary); border-radius:6px; }
+    input[type=range]::-moz-range-thumb{
+      width:28px; height:28px; border-radius:50%;
+      background:var(--secondary); border:3px solid var(--primary); cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>PowerFarm Pricing Calculator</h2>
+    <div class="sub">Incremental per-100 packages with rate tiers (matches manager examples)</div>
+
+    <label for="props">Number of Properties</label>
+    <input id="props" type="range" min="500" max="12000" step="100" value="500" />
+    <div class="count"><span id="propCount">500</span> properties</div>
+
+    <div class="price">Total Price: $<span id="totalPrice">500</span></div>
+
+    <div class="breakdown" id="breakdown"></div>
+
+    <div class="legend">Rate tiers (after first 500 included):</div>
+    <div class="tiers">
+      <div class="tier"><h4>Band 1</h4>501–1,000<br><span class="amt">$100 / 100</span></div>
+      <div class="tier"><h4>Band 2</h4>1,001–2,000<br><span class="amt">$95 / 100</span></div>
+      <div class="tier"><h4>Band 3</h4>2,001–5,000<br><span class="amt">$90 / 100</span></div>
+      <div class="tier"><h4>Band 4</h4>5,001–10,000<br><span class="amt">$80 / 100</span></div>
+      <div class="tier"><h4>Band 5</h4>10,001+<br><span class="amt">$75 / 100</span></div>
+    </div>
+  </div>
+
+  <script>
+    // Rate tiers after the base 500 (incremental, per 100-pack; round up within each band)
+    const TIERS = [
+      { name: "501–1,000 @ $100/100",     limit: 500,  packPrice: 100 },
+      { name: "1,001–2,000 @ $95/100",    limit: 1000, packPrice: 95  },
+      { name: "2,001–5,000 @ $90/100",    limit: 3000, packPrice: 90  },
+      { name: "5,001–10,000 @ $80/100",   limit: 5000, packPrice: 80  },
+      { name: "10,001+ @ $75/100",        limit: Infinity, packPrice: 75 }
+    ];
+
+    function calcIncremental(n){
+      let total = 500; // base for first 500
+      const breakdown = [
+        {label: "Base (first 500 included)", detail: "500 included", amount: 500}
+      ];
+
+      if (n <= 500) return { total, breakdown };
+
+      let remaining = n - 500;
+
+      for (const tier of TIERS) {
+        if (remaining <= 0) break;
+
+        // Amount that falls in this tier (raw, before 100-pack rounding)
+        const useInTier = Math.min(remaining, tier.limit);
+
+        // Packages must be purchased in 100s within the current tier
+        const packages = Math.ceil(useInTier / 100);
+        const chargedPacksProps = packages * 100;
+        const cost = packages * tier.packPrice;
+
+        const note = chargedPacksProps > useInTier
+          ? `(${useInTier.toLocaleString()} used, rounded to ${chargedPacksProps.toLocaleString()})`
+          : `(${chargedPacksProps.toLocaleString()} total)`;
+
+        breakdown.push({
+          label: tier.name,
+          detail: `${packages} package${packages>1?"s":""} ${note}`,
+          amount: cost
+        });
+
+        total += cost;
+        remaining -= useInTier;
+      }
+
+      return { total, breakdown };
+    }
+
+    function renderBreakdown(container, data){
+      container.innerHTML = "";
+      // base row
+      const base = data.breakdown[0];
+      container.appendChild(rowEl(base.label, base.detail, "$500"));
+
+      // tier rows
+      for (let i = 1; i < data.breakdown.length; i++) {
+        const r = data.breakdown[i];
+        container.appendChild(rowEl(r.label, r.detail, "$" + r.amount.toLocaleString()));
+      }
+
+      // total
+      const totalRow = document.createElement("div");
+      totalRow.className = "row total-row";
+      totalRow.appendChild(Object.assign(document.createElement("div"), {className:"l", textContent:"Total"}));
+      totalRow.appendChild(Object.assign(document.createElement("div"), {className:"r", textContent:"$" + data.total.toLocaleString()}));
+      container.appendChild(totalRow);
+    }
+
+    function rowEl(label, detail, right){
+      const el = document.createElement("div");
+      el.className = "row";
+      const left = document.createElement("div");
+      left.className = "l";
+      left.innerHTML = `<strong>${label}</strong> — ${detail}`;
+      const rightEl = document.createElement("div");
+      rightEl.className = "r";
+      rightEl.textContent = right;
+      el.appendChild(left); el.appendChild(rightEl);
+      return el;
+    }
+
+    // Wire up UI
+    const slider = document.getElementById("props");
+    const propCount = document.getElementById("propCount");
+    const totalPrice = document.getElementById("totalPrice");
+    const breakdownEl = document.getElementById("breakdown");
+
+    function update(){
+      const n = parseInt(slider.value, 10);
+      document.getElementById("propCount").textContent = n.toLocaleString();
+      const result = calcIncremental(n);
+      document.getElementById("totalPrice").textContent = result.total.toLocaleString();
+      renderBreakdown(breakdownEl, result);
+    }
+
+    slider.addEventListener("input", update);
+    update(); // init
+  </script>
+</body>
+</html>
